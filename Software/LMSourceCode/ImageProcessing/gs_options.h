@@ -86,6 +86,8 @@ namespace golf_sim {
 					"Instructs any GolfSim instance connected to the ActiveMQ broker to shutdown")
 				("cam_still_mode", value<bool>(&camera_still_mode_)->default_value(false)->implicit_value(true),
 					"Take a single camera2 still picture (using one strobe flash) and exit")
+				("single_strobe_pic", value<bool>(&single_strobe_picture_mode_)->default_value(false)->implicit_value(true),
+					"Take a single synchronized strobe picture with camera2 (isolated mode, no IPC)")
 				("lm_comparison_mode", value<bool>(&lm_comparison_mode_)->default_value(false)->implicit_value(true),
 					"Configure for operating in another infrared-based LM environment")
 				("send_test_results", value<bool>(&send_test_results_)->default_value(false)->implicit_value(true),
@@ -146,6 +148,7 @@ namespace golf_sim {
 		bool version_;
 		bool shutdown_;
 		bool camera_still_mode_;
+		bool single_strobe_picture_mode_;
 		bool lm_comparison_mode_;
 		bool send_test_results_;
 		bool skip_wait_armed_;

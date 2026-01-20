@@ -1090,6 +1090,33 @@ void run_main(int argc, char* argv[])
     }
 
 
+    // Single strobe picture mode - fully isolated, keyboard-triggered
+    // This mode is for single-Pi operation: fires strobe and captures synchronized picture
+    // with camera2, saving directly to disk. No IPC, no ball detection, minimal initialization.
+    if (GolfSimOptions::GetCommandLineOptions().single_strobe_picture_mode_) {
+
+        GS_LOG_MSG(info, "Running in single_strobe_picture mode (isolated, single-Pi).");
+
+        // Load configuration for strobe timing, camera settings, etc.
+        // Note: minimal initialization - no IPC setup needed
+
+        std::string output_filename = GolfSimOptions::GetCommandLineOptions().output_filename_;
+        if (output_filename.empty() || output_filename == "out.png") {
+            output_filename = "single_strobe_image.png";
+        }
+
+        GS_LOG_MSG(info, "Output file: " + output_filename);
+
+        if (!TakeSingleStrobePicture(output_filename)) {
+            GS_LOG_MSG(error, "Failed to take single strobe picture.");
+            return;
+        }
+
+        GS_LOG_MSG(info, "Single strobe picture captured successfully.");
+        return;
+    }
+
+
     // In this mode, we just take a single picture and save it.
     // Only do so locally if this is the camera1 system, of course
     // If in cam2_still_mode on the camera2 system, send the shutter

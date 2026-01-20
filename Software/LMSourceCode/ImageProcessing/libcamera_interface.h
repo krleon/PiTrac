@@ -134,6 +134,9 @@ namespace golf_sim {
 
 	bool WaitForCam2Trigger(cv::Mat& return_image);
 
+	// Take a single synchronized strobe picture (isolated mode for single-Pi operation)
+	bool TakeSingleStrobePicture(const std::string& output_filename);
+
 	bool PerformCameraSystemStartup();
 
 	static void SetLibCameraLoggingOff();

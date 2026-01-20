@@ -40,9 +40,11 @@
 #include "logging_tools.h"
 
 #include <libcamera/logging.h>
+#include <thread>
 #include "motion_detect.h"
 #include "libcamera_interface.h"
 #include "ball_image_proc.h"
+#include "pulse_strobe.h"
 
 
 namespace golf_sim {
@@ -1524,6 +1526,166 @@ bool WaitForCam2Trigger(cv::Mat& return_image) {
 
         LoggingTools::LogImage("", return_image, std::vector < cv::Point >{}, true, output_fname);
     }
+
+    return true;
+}
+
+
+// Take a single synchronized strobe picture (isolated mode for single-Pi operation)
+// This function is fully self-contained: it initializes GPIO, waits for user keypress,
+// sets up camera2, sends priming pulses, fires the strobe, captures the image, and saves it.
+bool TakeSingleStrobePicture(const std::string& output_filename) {
+    GS_LOG_MSG(info, "TakeSingleStrobePicture: Initializing for isolated single-strobe capture");
+
+    // 1. Initialize GPIO/SPI for strobe control
+    if (!PulseStrobe::InitGPIOSystem()) {
+        GS_LOG_MSG(error, "TakeSingleStrobePicture: Failed to InitGPIOSystem.");
+        return false;
+    }
+
+    // Create a camera just to set the resolution and for un-distort operation
+    const CameraHardware::CameraModel camera_model = GolfSimCamera::kSystemSlot2CameraType;
+    const CameraHardware::LensType camera_lens_type = GolfSimCamera::kSystemSlot2LensType;
+    const CameraHardware::CameraOrientation camera_orientation = GolfSimCamera::kSystemSlot2CameraOrientation;
+
+    GolfSimCamera camera;
+    camera.camera_hardware_.init_camera_parameters(GsCameraNumber::kGsCamera2, camera_model, camera_lens_type, camera_orientation);
+
+    // For InnoMaker cameras, we need to set external trigger mode
+    if (camera_model == CameraHardware::CameraModel::InnoMakerIMX296GS_Mono) {
+        std::string trigger_mode_command = "$PITRAC_ROOT/ImageProcessing/CameraTools/imx296_trigger 4 1";
+        int command_result = system(trigger_mode_command.c_str());
+        if (command_result != 0) {
+            GS_LOG_MSG(warning, "TakeSingleStrobePicture: imx296_trigger command returned non-zero (may be expected).");
+        }
+    }
+
+    if (!SetLibcameraTuningFileEnvVariable(camera)) {
+        GS_LOG_MSG(error, "TakeSingleStrobePicture: failed to SetLibcameraTuningFileEnvVariable");
+        PulseStrobe::DeinitGPIOSystem();
+        return false;
+    }
+
+    // 2. Wait for keyboard trigger
+    GS_LOG_MSG(info, "TakeSingleStrobePicture: Press any key to trigger strobe capture...");
+    cv::waitKey(0);  // Block until keypress
+
+    GS_LOG_MSG(info, "TakeSingleStrobePicture: Key pressed - starting capture sequence");
+
+    // Shared state for the capture thread
+    cv::Mat raw_image;
+    std::atomic<bool> capture_complete(false);
+    std::atomic<bool> capture_success(false);
+
+    // 3. Start camera capture in a background thread (it will wait for external trigger)
+    std::thread capture_thread([&]() {
+        LibcameraJpegApp app;
+
+        try {
+            StillOptions* options = app.GetOptions();
+
+            char dummy_arguments[] = "DummyExecutableName";
+            char* argv[] = { dummy_arguments, NULL };
+
+            if (!options->Parse(1, argv)) {
+                GS_LOG_MSG(error, "TakeSingleStrobePicture: Failed to parse options");
+                capture_complete = true;
+                return;
+            }
+
+            SetLibCameraLoggingOff();
+
+            // Single-Pi: camera2 is in slot 1
+            options->camera = 1;
+
+            options->gain = LibCameraInterface::kCamera2Gain;
+            options->contrast = LibCameraInterface::kCamera2Contrast;
+            options->saturation = LibCameraInterface::kCamera2Saturation;
+            options->immediate = true;
+            options->timeout.set("0ms");  // Wait forever for external trigger
+
+            if (camera_model != CameraHardware::CameraModel::InnoMakerIMX296GS_Mono) {
+                options->denoise = "cdn_off";
+            } else {
+                options->denoise = "auto";
+            }
+
+            options->nopreview = true;
+            options->viewfinder_width = camera.camera_hardware_.resolution_x_;
+            options->viewfinder_height = camera.camera_hardware_.resolution_y_;
+            options->width = camera.camera_hardware_.resolution_x_;
+            options->height = camera.camera_hardware_.resolution_y_;
+            options->shutter.set("11111us");  // Not actually used for external triggering
+            options->info_text = "";
+
+            if (camera_orientation == CameraHardware::CameraOrientation::kUpsideDown) {
+                options->transform = libcamera::Transform::VFlip;
+            }
+
+            // This will block until the external trigger fires
+            ball_flight_camera_event_loop(app, raw_image);
+
+            capture_success = true;
+        }
+        catch (std::exception const& e) {
+            GS_LOG_MSG(error, "TakeSingleStrobePicture: Camera thread exception: " + std::string(e.what()));
+        }
+
+        app.StopCamera();
+        app.Teardown();
+        capture_complete = true;
+    });
+
+    // 4. Give the camera thread a moment to get ready
+    GS_LOG_MSG(trace, "TakeSingleStrobePicture: Waiting for camera to initialize...");
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    // 5. Send priming pulses (required for InnoMaker camera)
+    GS_LOG_MSG(info, "TakeSingleStrobePicture: Sending priming pulses...");
+    if (!PulseStrobe::SendCameraPrimingPulses(true /* use_high_speed */)) {
+        GS_LOG_MSG(error, "TakeSingleStrobePicture: Failed to send priming pulses.");
+        capture_thread.join();
+        PulseStrobe::DeinitGPIOSystem();
+        return false;
+    }
+
+    // 6. Fire the external trigger (strobe + shutter)
+    GS_LOG_MSG(info, "TakeSingleStrobePicture: Firing external trigger...");
+    PulseStrobe::SendExternalTrigger();
+
+    // 7. Wait for camera to capture
+    GS_LOG_MSG(trace, "TakeSingleStrobePicture: Waiting for capture to complete...");
+    capture_thread.join();
+
+    if (!capture_success) {
+        GS_LOG_MSG(error, "TakeSingleStrobePicture: Capture failed.");
+        PulseStrobe::DeinitGPIOSystem();
+        return false;
+    }
+
+    if (raw_image.empty()) {
+        GS_LOG_MSG(error, "TakeSingleStrobePicture: Captured image is empty.");
+        PulseStrobe::DeinitGPIOSystem();
+        return false;
+    }
+
+    GS_LOG_MSG(info, "TakeSingleStrobePicture: Capture successful, image size: " +
+               std::to_string(raw_image.cols) + "x" + std::to_string(raw_image.rows));
+
+    // 8. Undistort if configured
+    cv::Mat return_image = LibCameraInterface::undistort_camera_image(raw_image, camera);
+
+    // 9. Save directly to disk
+    if (!cv::imwrite(output_filename, return_image)) {
+        GS_LOG_MSG(error, "TakeSingleStrobePicture: Failed to save image to: " + output_filename);
+        PulseStrobe::DeinitGPIOSystem();
+        return false;
+    }
+
+    GS_LOG_MSG(info, "TakeSingleStrobePicture: Saved image to: " + output_filename);
+
+    // 10. Cleanup
+    PulseStrobe::DeinitGPIOSystem();
 
     return true;
 }
