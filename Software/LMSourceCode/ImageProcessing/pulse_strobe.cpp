@@ -449,6 +449,7 @@ namespace golf_sim {
                     GolfSimOptions::GetCommandLineOptions().system_mode_ != SystemMode::kCamera1TestStandalone &&
                     GolfSimOptions::GetCommandLineOptions().system_mode_ != SystemMode::kTest &&
                     !GolfSimOptions::GetCommandLineOptions().camera_still_mode_ &&
+                    !GolfSimOptions::GetCommandLineOptions().single_strobe_picture_mode_ &&
                     GolfSimOptions::GetCommandLineOptions().system_mode_ != SystemMode::kCamera1AutoCalibrate &&
                     GolfSimOptions::GetCommandLineOptions().system_mode_ != SystemMode::kCamera2AutoCalibrate &&
                     GolfSimOptions::GetCommandLineOptions().system_mode_ != SystemMode::kCamera1BallLocation &&
@@ -462,7 +463,9 @@ namespace golf_sim {
 #ifdef __unix__  // Ignore in Windows environment
 
 		// Skip GPIO hardware initialization in test mode - we only need pulse timing data
-		if (GolfSimOptions::GetCommandLineOptions().system_mode_ != SystemMode::kTest) {
+		// Exception: single_strobe_picture_mode_ needs GPIO even in test mode
+		if (GolfSimOptions::GetCommandLineOptions().system_mode_ != SystemMode::kTest ||
+		    GolfSimOptions::GetCommandLineOptions().single_strobe_picture_mode_) {
 			// Only initialize GPIO hardware for non-test modes
 			if (GolfSimConfiguration::GetPiModel() == GolfSimConfiguration::PiModel::kRPi5) {
 				lggpio_chip_handle_ = lgGpiochipOpen(kRPi5GpioChipNumber);

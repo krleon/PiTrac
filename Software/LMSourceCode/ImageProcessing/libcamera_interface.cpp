@@ -1551,15 +1551,6 @@ bool TakeSingleStrobePicture(const std::string& output_filename) {
     GolfSimCamera camera;
     camera.camera_hardware_.init_camera_parameters(GsCameraNumber::kGsCamera2, camera_model, camera_lens_type, camera_orientation);
 
-    // For InnoMaker cameras, we need to set external trigger mode
-    if (camera_model == CameraHardware::CameraModel::InnoMakerIMX296GS_Mono) {
-        std::string trigger_mode_command = "$PITRAC_ROOT/ImageProcessing/CameraTools/imx296_trigger 4 1";
-        int command_result = system(trigger_mode_command.c_str());
-        if (command_result != 0) {
-            GS_LOG_MSG(warning, "TakeSingleStrobePicture: imx296_trigger command returned non-zero (may be expected).");
-        }
-    }
-
     if (!SetLibcameraTuningFileEnvVariable(camera)) {
         GS_LOG_MSG(error, "TakeSingleStrobePicture: failed to SetLibcameraTuningFileEnvVariable");
         PulseStrobe::DeinitGPIOSystem();
@@ -1576,9 +1567,11 @@ bool TakeSingleStrobePicture(const std::string& output_filename) {
     cv::Mat raw_image;
     std::atomic<bool> capture_complete(false);
     std::atomic<bool> capture_success(false);
+    std::atomic<bool> camera_ready(false);
 
     // 3. Start camera capture in a background thread (it will wait for external trigger)
     std::thread capture_thread([&]() {
+        GS_LOG_MSG(trace, "TakeSingleStrobePicture: Camera thread starting...");
         LibcameraJpegApp app;
 
         try {
@@ -1592,6 +1585,8 @@ bool TakeSingleStrobePicture(const std::string& output_filename) {
                 capture_complete = true;
                 return;
             }
+
+            GS_LOG_MSG(trace, "TakeSingleStrobePicture: Camera thread - options parsed");
 
             SetLibCameraLoggingOff();
 
@@ -1622,10 +1617,21 @@ bool TakeSingleStrobePicture(const std::string& output_filename) {
                 options->transform = libcamera::Transform::VFlip;
             }
 
+            GS_LOG_MSG(trace, "TakeSingleStrobePicture: Camera thread - calling ball_flight_camera_event_loop");
+
+            // Signal that we're about to enter the event loop
+            // The camera will be opened and started inside ball_flight_camera_event_loop
+            camera_ready = true;
+
             // This will block until the external trigger fires
-            ball_flight_camera_event_loop(app, raw_image);
+            if (!ball_flight_camera_event_loop(app, raw_image)) {
+                GS_LOG_MSG(error, "TakeSingleStrobePicture: ball_flight_camera_event_loop returned false");
+                capture_complete = true;
+                return;
+            }
 
             capture_success = true;
+            GS_LOG_MSG(trace, "TakeSingleStrobePicture: Camera thread - capture complete");
         }
         catch (std::exception const& e) {
             GS_LOG_MSG(error, "TakeSingleStrobePicture: Camera thread exception: " + std::string(e.what()));
@@ -1636,12 +1642,26 @@ bool TakeSingleStrobePicture(const std::string& output_filename) {
         capture_complete = true;
     });
 
-    // 4. Give the camera thread a moment to get ready
-    GS_LOG_MSG(trace, "TakeSingleStrobePicture: Waiting for camera to initialize...");
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    // 4. Wait for camera thread to signal it's entering the event loop
+    GS_LOG_MSG(trace, "TakeSingleStrobePicture: Waiting for camera thread to be ready...");
+    int wait_count = 0;
+    while (!camera_ready && wait_count < 100) {  // Max 10 seconds
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        wait_count++;
+    }
+
+    if (!camera_ready) {
+        GS_LOG_MSG(error, "TakeSingleStrobePicture: Camera thread did not become ready in time");
+        capture_thread.join();
+        PulseStrobe::DeinitGPIOSystem();
+        return false;
+    }
+
+    GS_LOG_MSG(info, "TakeSingleStrobePicture: Camera thread ready, sending priming pulses...");
 
     // 5. Send priming pulses (required for InnoMaker camera)
-    GS_LOG_MSG(info, "TakeSingleStrobePicture: Sending priming pulses...");
+    // Note: SendCameraPrimingPulses has a built-in delay (kCam2SetupPeriodMilliseconds)
+    // to allow the camera to fully initialize before the first pulse
     if (!PulseStrobe::SendCameraPrimingPulses(true /* use_high_speed */)) {
         GS_LOG_MSG(error, "TakeSingleStrobePicture: Failed to send priming pulses.");
         capture_thread.join();
