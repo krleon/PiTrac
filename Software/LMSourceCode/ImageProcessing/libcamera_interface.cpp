@@ -41,6 +41,7 @@
 
 #include <libcamera/logging.h>
 #include <thread>
+#include <iostream>
 #include "motion_detect.h"
 #include "libcamera_interface.h"
 #include "ball_image_proc.h"
@@ -1557,9 +1558,9 @@ bool TakeSingleStrobePicture(const std::string& output_filename) {
         return false;
     }
 
-    // 2. Wait for keyboard trigger
-    GS_LOG_MSG(info, "TakeSingleStrobePicture: Press any key to trigger strobe capture...");
-    cv::waitKey(0);  // Block until keypress
+    // 2. Wait for keyboard trigger (use std::cin instead of cv::waitKey which requires a GUI window)
+    GS_LOG_MSG(info, "TakeSingleStrobePicture: Press ENTER to trigger strobe capture...");
+    std::cin.get();  // Block until Enter is pressed
 
     GS_LOG_MSG(info, "TakeSingleStrobePicture: Key pressed - starting capture sequence");
 
