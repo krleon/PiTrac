@@ -1671,8 +1671,10 @@ bool TakeSingleStrobePicture(const std::string& output_filename) {
     }
 
     // 6. Fire the external trigger (strobe + shutter)
-    GS_LOG_MSG(info, "TakeSingleStrobePicture: Firing external trigger...");
-    PulseStrobe::SendExternalTrigger();
+    int strobe_time = GolfSimOptions::GetCommandLineOptions().strobe_time_us_;
+    GS_LOG_MSG(info, "TakeSingleStrobePicture: Firing single strobe for " +
+               std::to_string(strobe_time) + " us...");
+    PulseStrobe::SendSingleStrobeTrigger(strobe_time);
 
     // 7. Wait for camera to capture
     GS_LOG_MSG(trace, "TakeSingleStrobePicture: Waiting for capture to complete...");

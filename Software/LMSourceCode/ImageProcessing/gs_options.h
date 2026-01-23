@@ -88,6 +88,8 @@ namespace golf_sim {
 					"Take a single camera2 still picture (using one strobe flash) and exit")
 				("single_strobe_pic", value<bool>(&single_strobe_picture_mode_)->default_value(false)->implicit_value(true),
 					"Take a single synchronized strobe picture with camera2 (isolated mode, no IPC)")
+				("strobe_time_us", value<int>(&strobe_time_us_)->default_value(35),
+					"Strobe pulse duration in microseconds for single_strobe_pic mode")
 				("lm_comparison_mode", value<bool>(&lm_comparison_mode_)->default_value(false)->implicit_value(true),
 					"Configure for operating in another infrared-based LM environment")
 				("send_test_results", value<bool>(&send_test_results_)->default_value(false)->implicit_value(true),
@@ -149,6 +151,7 @@ namespace golf_sim {
 		bool shutdown_;
 		bool camera_still_mode_;
 		bool single_strobe_picture_mode_;
+		int strobe_time_us_ = 35;  // Strobe pulse duration in microseconds
 		bool lm_comparison_mode_;
 		bool send_test_results_;
 		bool skip_wait_armed_;

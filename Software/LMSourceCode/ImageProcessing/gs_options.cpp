@@ -132,6 +132,7 @@ void GolfSimOptions::Print() const
 	std::cout << "    shutdown: " << std::to_string(shutdown_) << std::endl;
 	std::cout << "    cam_still_mode: " << std::to_string(camera_still_mode_) << std::endl;
 	std::cout << "    single_strobe_pic: " << std::to_string(single_strobe_picture_mode_) << std::endl;
+	std::cout << "    strobe_time_us: " << std::to_string(strobe_time_us_) << std::endl;
 	std::cout << "    lm_comparison_mode: " << std::to_string(lm_comparison_mode_) << std::endl;	
 	std::cout << "    send_test_results: " << std::to_string(send_test_results_) << std::endl;
 	if (!output_filename_.empty())

@@ -56,6 +56,7 @@ namespace golf_sim {
 
 		static bool SendCameraPrimingPulses(bool use_high_speed);
 		static bool SendExternalTrigger();
+		static bool SendSingleStrobeTrigger(int strobe_time_us);
 
 		// Sends the already-created pulse buffer to the strobes via SPI, and also
 		// opens the shutter while the pulses are sent.
