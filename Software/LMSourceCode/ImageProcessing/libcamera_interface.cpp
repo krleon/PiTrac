@@ -1569,6 +1569,7 @@ bool TakeSingleStrobePicture(const std::string& output_filename) {
     std::atomic<bool> capture_complete(false);
     std::atomic<bool> capture_success(false);
     std::atomic<bool> camera_ready(false);
+    std::atomic<bool> ready_for_final_trigger(false);
 
     // 3. Start camera capture in a background thread (it will wait for external trigger)
     std::thread capture_thread([&]() {
@@ -1625,7 +1626,7 @@ bool TakeSingleStrobePicture(const std::string& output_filename) {
             camera_ready = true;
 
             // This will block until the external trigger fires
-            if (!ball_flight_camera_event_loop(app, raw_image)) {
+            if (!ball_flight_camera_event_loop(app, raw_image, &ready_for_final_trigger)) {
                 GS_LOG_MSG(error, "TakeSingleStrobePicture: ball_flight_camera_event_loop returned false");
                 capture_complete = true;
                 return;
@@ -1669,6 +1670,25 @@ bool TakeSingleStrobePicture(const std::string& output_filename) {
         PulseStrobe::DeinitGPIOSystem();
         return false;
     }
+
+    // 5b. Wait for camera thread to signal it's ready for the final trigger
+    // This synchronization prevents the race condition where the strobe fires
+    // before the camera has finished processing the last priming pulse
+    GS_LOG_MSG(trace, "TakeSingleStrobePicture: Waiting for camera to be ready for final trigger...");
+    wait_count = 0;
+    while (!ready_for_final_trigger && wait_count < 50) {  // Max 500ms
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        wait_count++;
+    }
+
+    if (!ready_for_final_trigger) {
+        GS_LOG_MSG(error, "TakeSingleStrobePicture: Camera did not become ready for final trigger in time");
+        capture_thread.join();
+        PulseStrobe::DeinitGPIOSystem();
+        return false;
+    }
+
+    GS_LOG_MSG(info, "TakeSingleStrobePicture: Camera ready for final trigger.");
 
     // 6. Fire the external trigger (strobe + shutter)
     int strobe_time = GolfSimOptions::GetCommandLineOptions().strobe_time_us_;

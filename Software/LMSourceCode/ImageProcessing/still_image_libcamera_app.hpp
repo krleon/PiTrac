@@ -20,6 +20,8 @@
 #include "core/rpicam_app.hpp"
 #include "encoder/encoder.hpp"
 
+#include <atomic>
+
 #include <opencv2/photo.hpp>
 #include <opencv2/core/cvdef.h>
 
@@ -41,6 +43,7 @@ public:
 // The main event loops for the camera 1 and 2 systems
 bool still_image_event_loop(LibcameraJpegApp& app, cv::Mat& returnImg);
 
-bool ball_flight_camera_event_loop(LibcameraJpegApp& app, cv::Mat& returnImg);
+bool ball_flight_camera_event_loop(LibcameraJpegApp& app, cv::Mat& returnImg,
+                                   std::atomic<bool>* ready_for_final_trigger = nullptr);
 
 #endif // #ifdef __unix__  // Ignore in Windows environment

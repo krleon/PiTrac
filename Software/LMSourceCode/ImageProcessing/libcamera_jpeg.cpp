@@ -85,7 +85,8 @@ void SetExternalTrigger(bool& flag) {
 
 // The main event loop for the the externally-triggered camera.
 
-bool ball_flight_camera_event_loop(LibcameraJpegApp& app, cv::Mat& returnImg)
+bool ball_flight_camera_event_loop(LibcameraJpegApp& app, cv::Mat& returnImg,
+                                   std::atomic<bool>* ready_for_final_trigger)
 {
 	GS_LOG_TRACE_MSG(trace, "ball_flight_camera_event_loop started.  Waiting for external trigger....");
 
@@ -312,6 +313,12 @@ bool ball_flight_camera_event_loop(LibcameraJpegApp& app, cv::Mat& returnImg)
 				else {
 					GS_LOG_TRACE_MSG(trace, "Priming period complete.  Ready for Pre-image Trigger.");
 					state = kWaitingForPreImageTrigger;
+				}
+
+				// Signal that the camera is now ready for the final trigger
+				if (ready_for_final_trigger != nullptr) {
+					GS_LOG_TRACE_MSG(trace, "Signaling ready_for_final_trigger.");
+					*ready_for_final_trigger = true;
 				}
 			}
 			break;
