@@ -749,9 +749,13 @@ namespace golf_sim {
 		int strobe_length_bits = (strobe_time_us * baud_rate) / 1000000;
 		strobe_length_bits = std::clamp(strobe_length_bits, 1, 15);
 
+		// Dynamically size SPI transfer to minimize shutter open time
+		int spi_length = (strobe_length_bits <= 8) ? 1 : 2;
+
 		GS_LOG_MSG(info, "SendSingleStrobeTrigger: " + std::to_string(strobe_time_us) +
 		           " us -> " + std::to_string(strobe_length_bits) + " bits at " +
-		           std::to_string(baud_rate) + " baud");
+		           std::to_string(baud_rate) + " baud, sending " +
+		           std::to_string(spi_length) + " SPI byte(s)");
 
 		// Build the pulse bit pattern (ON bits left-justified in 16 bits)
 		uint16_t pulse_pattern = 0;
@@ -764,11 +768,12 @@ namespace golf_sim {
 		unsigned char first_byte = (unsigned char)(pulse_pattern >> 8);
 		unsigned char second_byte = (unsigned char)(pulse_pattern & 0xFF);
 
-		// Build minimal pulse buffer: 2 bytes for ON pulse + padding for word alignment
-		char pulse_buf[4] = {0};
+		// Build pulse buffer sized to actual pulse length
+		char pulse_buf[2] = {0};
 		pulse_buf[0] = first_byte;
-		pulse_buf[1] = second_byte;
-		// pulse_buf[2] and [3] are already 0 for padding
+		if (spi_length > 1) {
+			pulse_buf[1] = second_byte;
+		}
 
 		// Open shutter
 		if (kUsingActiveHighTriggerCamera) {
@@ -777,10 +782,11 @@ namespace golf_sim {
 			lgGpioWrite(lggpio_chip_handle_, kPulseTriggerOutputPin, kON);
 		}
 
-		// Send strobe pulse via SPI
-		int bytes_sent = lgSpiWrite(spiHandle_, pulse_buf, 4);
-		if (bytes_sent != 4) {
-			GS_LOG_MSG(error, "SendSingleStrobeTrigger: lgSpiWrite failed. Returned " +
+		// Send strobe pulse via SPI (minimal bytes to reduce shutter open time)
+		int bytes_sent = lgSpiWrite(spiHandle_, pulse_buf, spi_length);
+		if (bytes_sent != spi_length) {
+			GS_LOG_MSG(error, "SendSingleStrobeTrigger: lgSpiWrite failed. Expected " +
+			           std::to_string(spi_length) + " bytes, returned " +
 			           std::to_string(bytes_sent));
 		}
 
@@ -791,7 +797,8 @@ namespace golf_sim {
 			lgGpioWrite(lggpio_chip_handle_, kPulseTriggerOutputPin, kOFF);
 		}
 
-		GS_LOG_MSG(trace, "SendSingleStrobeTrigger: Sent single strobe pulse");
+		GS_LOG_MSG(trace, "SendSingleStrobeTrigger: Sent single strobe pulse (" +
+		           std::to_string(spi_length) + " byte(s))");
 #endif
 		return true;
 	}
